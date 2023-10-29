@@ -2,12 +2,20 @@ use std::{net::{TcpListener, TcpStream}, io::{Read, Write}};
 
 fn handle_stream(mut stream: TcpStream) {
     let mut buff = [0; 1024];
-    let bytes_recv = stream.read(&mut buff).expect("Unable to read stream into buffer");
-    let req = String::from_utf8(buff[..bytes_recv].to_vec()).expect("Error during parsing buffer as String");
-    println!("Request: {}", req);
 
-    let pong_resp = "+PONG\r\n";
-    stream.write_all(pong_resp.as_bytes()).unwrap();
+    loop {
+        let bytes_recv = stream.read(&mut buff).expect("Unable to read stream into buffer");
+
+        if bytes_recv == 0 {
+            break;
+        }
+
+        let req = String::from_utf8(buff[..bytes_recv].to_vec()).expect("Error during parsing buffer as String");
+        println!("Request: {}", req);
+
+        let pong_resp = "+PONG\r\n";
+        stream.write_all(pong_resp.as_bytes()).expect("Write to TCP stream failed");
+    }
     stream.flush().unwrap();
 }
 
