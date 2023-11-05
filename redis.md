@@ -63,7 +63,29 @@ $4 -> string of size 4 (echo)
 
 $3 -> string of size 3 (hey)
 
+RESP: $3\r\nhey\r\n
+```
 
-RESP:
+## GET and SET cmds
 
 ```
+redis> SET mykey "Hello"
+"OK"
+redis> GET mykey
+"Hello"
+redis> SET anotherkey "will expire in a minute" EX 60
+"OK"
+```
+ 
+- responding with Simple string: `+OK\r\n` -> the key was set
+
+- responding with Bulk string: `$3\r\nfoo\r\n` -> value of some key
+- responding with Null (also a simple string): `_\r\n` -> if GET of some key is not present
+
+### Handling concurrent requests for GET and SET
+
+- Create a common store: `HashMap<String, String>`
+- initiate in `main()`
+- provide a deep copy to each tokio instance
+
+- Read-Write locks: to ensure concurrent access is properly sync (prevent races / deadlocks)
