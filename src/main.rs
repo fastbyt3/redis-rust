@@ -6,7 +6,7 @@ use tokio::net::TcpListener;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:6379").await?;
-    let store = Arc::new(RwLock::new(Store::new()));
+    let store = Arc::new(Store::new());
 
     loop {
         let (tcp_stream, _) = listener.accept().await?;

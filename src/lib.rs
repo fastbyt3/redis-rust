@@ -89,8 +89,9 @@ impl Command {
     pub fn construct_response(
         &self,
         request_content: Vec<Value>,
-        store: Arc<RwLock<Store>>,
+        store: Arc<Store>,
     ) -> Result<Value, Error> {
+        let store = store.clone();
         match self {
             Command::PING => match request_content.len() {
                 1 => Ok(Value::SimpleString("PONG".to_string())),
@@ -156,8 +157,7 @@ impl Command {
                     None
                 };
 
-                let mut guard = store.write().unwrap();
-                guard.insert(key.to_string(), value.to_string(), expires_in);
+                store.insert(key.to_string(), value.to_string(), expires_in);
 
                 Ok(Value::SimpleString("OK".to_string()))
             }
@@ -172,8 +172,7 @@ impl Command {
                     "KEY passed for GET cmd couldn;t be parsed as string",
                 ))?;
 
-                let mut guard = store.write().unwrap();
-                match guard.get(key, Instant::now()) {
+                match store.get(key, Instant::now()) {
                     Some(v) => Ok(Value::BulkString(Some(v))),
                     None => Ok(Value::BulkString(None)),
                 }
@@ -182,7 +181,7 @@ impl Command {
     }
 }
 
-pub async fn handle_stream(mut stream: TcpStream, store: Arc<RwLock<Store>>) -> Result<(), Error> {
+pub async fn handle_stream(mut stream: TcpStream, store: Arc<Store>) -> Result<(), Error> {
     let (read, write) = stream.split();
     let mut input_deserializer = StreamDeserializer::new(read);
     let mut output_serializer = StreamSerializer::new(write);
