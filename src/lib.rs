@@ -2,10 +2,7 @@ pub mod de;
 pub mod se;
 pub mod store;
 
-use std::{
-    sync::{Arc, RwLock},
-    time::Instant,
-};
+use std::{sync::Arc, time::Instant};
 
 use crate::de::StreamDeserializer;
 use se::StreamSerializer;

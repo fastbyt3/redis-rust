@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use redis_starter_rust::{handle_stream, store::Store};
 use tokio::net::TcpListener;
