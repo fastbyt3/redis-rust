@@ -83,7 +83,7 @@ impl Command {
         }
     }
 
-    pub fn construct_response(
+    pub async fn construct_response(
         &self,
         request_content: Vec<Value>,
         store: Arc<Store>,
@@ -154,7 +154,9 @@ impl Command {
                     None
                 };
 
-                store.insert(key.to_string(), value.to_string(), expires_in);
+                store
+                    .insert(key.to_string(), value.to_string(), expires_in)
+                    .await;
 
                 Ok(Value::SimpleString("OK".to_string()))
             }
@@ -169,7 +171,7 @@ impl Command {
                     "KEY passed for GET cmd couldn;t be parsed as string",
                 ))?;
 
-                match store.get(key, Instant::now()) {
+                match store.get(key, Instant::now()).await {
                     Some(v) => Ok(Value::BulkString(Some(v))),
                     None => Ok(Value::BulkString(None)),
                 }
@@ -200,7 +202,7 @@ pub async fn handle_stream(mut stream: TcpStream, store: Arc<Store>) -> Result<(
                 ))?;
 
                 let command = Command::from_str(cmd_part)?;
-                let response = command.construct_response(data, store)?;
+                let response = command.construct_response(data, store).await?;
 
                 output_serializer.write(response).await?;
             }

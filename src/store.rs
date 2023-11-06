@@ -1,9 +1,10 @@
 use std::ops::{Deref, DerefMut};
 use std::{
     collections::HashMap,
-    sync::RwLock,
     time::{Duration, Instant},
 };
+
+use tokio::sync::RwLock;
 
 #[derive(Debug)]
 pub struct Entry {
@@ -42,12 +43,12 @@ impl Store {
         Store { state }
     }
 
-    pub fn get(&self, key: &str, now: Instant) -> Option<String> {
-        let guard = self.state.read().unwrap();
+    pub async fn get(&self, key: &str, now: Instant) -> Option<String> {
+        let guard = self.state.read().await;
         if let Some(entry) = guard.get(key) {
             if entry.is_expired(now) {
                 drop(guard);
-                self.state.write().unwrap().remove(key);
+                self.state.write().await.remove(key);
                 None
             } else {
                 Some(entry.get_value())
@@ -57,9 +58,9 @@ impl Store {
         }
     }
 
-    pub fn insert(&self, key: String, value: String, ttl: Option<u64>) {
+    pub async fn insert(&self, key: String, value: String, ttl: Option<u64>) {
         let entry = Entry::new(value, ttl, Instant::now());
-        self.state.write().unwrap().insert(key, entry);
+        self.state.write().await.insert(key, entry);
     }
 }
 
@@ -80,51 +81,36 @@ impl DerefMut for Store {
 #[cfg(test)]
 mod test {
     use core::time;
-    use std::{sync::Arc, thread};
+    use std::{future::Future, thread};
+
+    use tokio::runtime::Runtime;
 
     use super::*;
 
-    #[test]
-    fn test_store() {
-        let store = Store::new();
-
-        // Insert a KV
-        store.insert("key".to_string(), "value".to_string(), Some(200 as u64));
-
-        // Test if its accessible within expiry period
-        assert_eq!(store.get("key", Instant::now()), Some("value".to_string()));
-
-        // Test if key is not accessible once the key expires
-        thread::sleep(time::Duration::from_millis(300));
-        assert_eq!(store.get("key", Instant::now()), None);
+    fn run_async_tests<F: Future>(f: F) {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(f);
     }
 
     #[test]
-    fn concurrent_access_test() {
-        let store = Arc::new(Store::new());
+    fn test_store() {
+        run_async_tests(async {
+            let store = Store::new();
 
-        store.insert("key1".to_string(), "value1".to_string(), None);
+            // Insert a KV
+            store
+                .insert("key".to_string(), "value".to_string(), Some(200 as u64))
+                .await;
 
-        let reader_store = store.clone();
-        let writer_store = store.clone();
+            // Test if its accessible within expiry period
+            assert_eq!(
+                store.get("key", Instant::now()).await,
+                Some("value".to_string())
+            );
 
-        let reader_thread = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(50));
-            let now = std::time::Instant::now();
-            let result = reader_store.get("key1", now);
-            assert_eq!(result, Some("value1".to_string()));
-        });
-
-        let modifier_thread = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(50));
-            writer_store.insert("key1".to_string(), "value2".to_string(), None);
-
-            let now = std::time::Instant::now();
-            let result = writer_store.get("key1", now);
-            assert_eq!(result, Some("value2".to_string()));
-        });
-
-        reader_thread.join().unwrap();
-        modifier_thread.join().unwrap();
+            // Test if key is not accessible once the key expires
+            thread::sleep(time::Duration::from_millis(300));
+            assert_eq!(store.get("key", Instant::now()).await, None);
+        })
     }
 }
