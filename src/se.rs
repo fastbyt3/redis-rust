@@ -1,4 +1,4 @@
-use crate::{Value, BULK_STRING_PREFIX, CRLF, SIMPLE_STRING_PREFIX};
+use crate::{Value, BULK_STRING_PREFIX, CRLF, INTEGER_PREFIX, SIMPLE_STRING_PREFIX};
 use std::io;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
@@ -32,19 +32,29 @@ where
                 self.stream.write_all(s.as_bytes()).await?;
                 self.send_term().await?;
             }
-            Value::BulkString(s) => {
-                let content_bytes = s.as_bytes();
-                let content_bytes_len = content_bytes.len();
+            Value::BulkString(opt_s) => match opt_s {
+                Some(s) => {
+                    let content_bytes = s.as_bytes();
+                    let content_bytes_len = content_bytes.len();
 
-                self.stream.write_u8(BULK_STRING_PREFIX as u8).await?;
-
-                self.stream
-                    .write_all(format!("{}", content_bytes_len).as_bytes())
-                    .await?;
-
-                self.send_term().await?;
-
-                self.stream.write_all(content_bytes).await?;
+                    self.stream.write_u8(BULK_STRING_PREFIX as u8).await?;
+                    self.stream
+                        .write_all(format!("{}", content_bytes_len).as_bytes())
+                        .await?;
+                    self.send_term().await?;
+                    self.stream.write_all(content_bytes).await?;
+                    self.send_term().await?;
+                }
+                None => {
+                    self.stream.write_u8(BULK_STRING_PREFIX as u8).await?;
+                    let content = "-1";
+                    self.stream.write_all(content.as_bytes()).await?;
+                    self.send_term().await?;
+                }
+            },
+            Value::Integer(n) => {
+                self.stream.write_u8(INTEGER_PREFIX as u8).await?;
+                self.stream.write_i64(n).await?;
 
                 self.send_term().await?;
             }

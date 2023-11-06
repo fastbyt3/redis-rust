@@ -2,7 +2,10 @@ pub mod de;
 pub mod se;
 pub mod store;
 
-use std::sync::{Arc, RwLock};
+use std::{
+    sync::{Arc, RwLock},
+    time::Instant,
+};
 
 use crate::de::StreamDeserializer;
 use se::StreamSerializer;
@@ -15,14 +18,12 @@ const INTEGER_PREFIX: char = ':';
 const SIMPLE_STRING_PREFIX: char = '+';
 const BULK_STRING_PREFIX: char = '$';
 const ARRAY_PREFIX: char = '*';
-const ERROR_PREFIX: char = '-';
-const NULL_PREFIX: char = '_';
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
     None,
     SimpleString(String),
-    BulkString(String),
+    BulkString(Option<String>),
     Array(Vec<Value>),
     Integer(i64),
 }
@@ -30,7 +31,26 @@ pub enum Value {
 impl Value {
     pub fn str_value(&self) -> Option<&str> {
         match self {
-            Self::SimpleString(s) | Self::BulkString(s) => Some(s.as_str()),
+            Self::SimpleString(s) => Some(s.as_str()),
+            Self::BulkString(opt_s) => match opt_s {
+                Some(s) => Some(s.as_str()),
+                None => panic!("Unexpected None for BulkString...."),
+            },
+            _ => None,
+        }
+    }
+
+    pub fn int_value(&self) -> Option<i64> {
+        match self {
+            Self::Integer(x) => Some(x.to_owned()),
+            Self::SimpleString(s) => match s.parse::<i64>() {
+                Ok(x) => Some(x),
+                Err(_) => None,
+            },
+            Self::BulkString(opt_s) => {
+                let s = opt_s.as_ref().expect("Unexpected NONE in BulkString");
+                Some(s.parse::<i64>().expect("Unable to parse as i64"))
+            }
             _ => None,
         }
     }
@@ -82,7 +102,7 @@ impl Command {
                         ))?
                         .to_string();
 
-                    Ok(Value::BulkString(pong_value))
+                    Ok(Value::BulkString(Some(pong_value)))
                 }
                 _ => return Err(Error::InvalidCommand("Expected either 0 or 1 arguments")),
             },
@@ -99,12 +119,14 @@ impl Command {
                     ))?
                     .to_string();
 
-                Ok(Value::BulkString(echo_content))
+                Ok(Value::BulkString(Some(echo_content)))
             }
             Command::SET => {
-                if request_content.len() != 3 {
+                // SET KEY VALUE
+                // SET KEY VALUE PX xxx
+                if request_content.len() != 3 && request_content.len() != 5 {
                     return Err(Error::InvalidCommand(
-                        "SET command expects exactly 2 arguments: KEY and VALUE",
+                        "SET command expects exactly 2 arguments: KEY and VALUE and one optional PX (set expiry)",
                     ));
                 }
 
@@ -116,8 +138,26 @@ impl Command {
                     "VALUE value to SET cmd couldn't be parsed as string",
                 ))?;
 
+                let expires_in = if request_content.len() == 5 {
+                    if request_content[3]
+                        .str_value()
+                        .map(|s| s.to_lowercase())
+                        .as_ref()
+                        .map(|s| s.as_str())
+                        != Some("px")
+                    {
+                        return Err(Error::InvalidCommand(
+                            "Expected either PX or px to specify expiry in ms for data",
+                        ));
+                    }
+
+                    Some(request_content[4].int_value().unwrap() as u64)
+                } else {
+                    None
+                };
+
                 let mut guard = store.write().unwrap();
-                guard.insert(key.to_string(), value.to_string());
+                guard.insert(key.to_string(), value.to_string(), expires_in);
 
                 Ok(Value::SimpleString("OK".to_string()))
             }
@@ -132,12 +172,10 @@ impl Command {
                     "KEY passed for GET cmd couldn;t be parsed as string",
                 ))?;
 
-                let guard = store.read().unwrap();
-                match guard.get(key) {
-                    Some(v) => Ok(Value::BulkString(v)),
-                    None => Err(Error::InvalidCommand(
-                        "Requested value for key was not found",
-                    )),
+                let mut guard = store.write().unwrap();
+                match guard.get(key, Instant::now()) {
+                    Some(v) => Ok(Value::BulkString(Some(v))),
+                    None => Ok(Value::BulkString(None)),
                 }
             }
         }
@@ -215,9 +253,11 @@ mod tests {
             );
 
             assert_eq!(
-                &encode(Value::BulkString("foobar".into())).await,
+                &encode(Value::BulkString(Some("foobar".into()))).await,
                 b"$6\r\nfoobar\r\n"
             );
+
+            assert_eq!(&encode(Value::BulkString(None)).await, b"$-1\r\n");
         })
     }
 
@@ -227,8 +267,8 @@ mod tests {
             assert_eq!(
                 decode(b"*2\r\n$3\r\nfoo\r\n$4\r\nbars\r\n").await,
                 Value::Array(vec![
-                    Value::BulkString("foo".to_string()),
-                    Value::BulkString("bars".to_string()),
+                    Value::BulkString(Some("foo".to_string())),
+                    Value::BulkString(Some("bars".to_string())),
                 ])
             );
 
@@ -247,7 +287,7 @@ mod tests {
 
     //     assert_eq!(Command::from_str("ping").unwrap(), Command::PING);
     //     assert_eq!(Command::from_str("PING").unwrap(), Command::PING);
-    //     assert_eq!(Command::from_str("Ping").unwrap(), Command::PING);
+    //     assert_eq!(Command::from_str("Ping").unwris_expiredap(), Command::PING);
 
     //     assert_eq!(
     //         Command::PING

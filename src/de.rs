@@ -86,7 +86,7 @@ where
                         )
                     })?;
 
-                    Ok(Value::BulkString(str_value))
+                    Ok(Value::BulkString(Some(str_value)))
                 } else {
                     Ok(Value::None)
                 }

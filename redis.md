@@ -89,3 +89,27 @@ redis> SET anotherkey "will expire in a minute" EX 60
 - provide a deep copy to each tokio instance
 
 - Read-Write locks: to ensure concurrent access is properly sync (prevent races / deadlocks)
+
+## Adding EXPIRY feat for SETing a key
+
+- expiry provided in `ms` using `PX` argument to SET
+
+```bash
+# First, it'll set a key with an expiry (100 milliseconds in this example)
+$ redis-cli set random_key random_value px 100
+
+# Immediately after, it'll send a GET command to retrieve the value
+# The response to this should be "random_value" (encoded as a RESP bulk string)
+$ redis-cli get random_key
+
+# Then, it'll wait for the key to expire and send another GET command
+# The response to this should be `-1\r\n` (a "null bulk string")
+$ sleep 0.2 && redis-cli get random_key
+```
+
+- How to keep track of EXPIRY of kv pairs in store....
+    - separate thread -> expensive??
+        - cleanup fn ran every 5sec
+    - how to clear the value from store....
+        - checking for expiry time at each GET -> If expired remove val and don't return
+        - if we dont GET and expiry time passes value never gets dealloc
