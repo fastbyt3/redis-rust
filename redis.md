@@ -113,3 +113,35 @@ $ sleep 0.2 && redis-cli get random_key
     - how to clear the value from store....
         - checking for expiry time at each GET -> If expired remove val and don't return
         - if we dont GET and expiry time passes value never gets dealloc
+
+- passive expiry -> checking if a value is expired and purging it if its expired
+- active expiry -> check with a bg process and auto delete if expiry period is crossed
+
+[How redis expires keys](https://redis.io/commands/expire/#how-redis-expires-keys) -> Reference
+
+### Implementing Active expiry
+
+1. `tokio::spawn` -> initiate a new task
+2. Set sample_size for reservoir sampling (other sampling methods can be used)
+3. Get random subset of keys from collection & check for expiry
+4. IF number of keys in subset found expired greater than 25% -> Reinitiate
+
+## Implementing Persistance using RDB
+
+- Redis uses `.rdb` files for persistance
+- config values:
+    - `dir`: dir where RDB files are stored
+    - `dbfilename`: name of RDB file
+
+- getting these values from Redis CLI 
+
+```
+redis-cli CONFIG GET dir
+*2\r\n$3\r\ndir\r\n$16\r\n/tmp/redis-files\r\n
+
+redis-cli CONFIG GET dbfilename
+*2\r\n$3\r\ndir\r\n$16\r\n/tmp/redis-files/file.rdb\r\n
+```
+
+- Expected response: Array with 2 Bulk strings - Key and value
+

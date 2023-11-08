@@ -1,3 +1,4 @@
+pub mod config;
 pub mod de;
 pub mod se;
 pub mod store;
@@ -5,6 +6,7 @@ pub mod store;
 use std::{sync::Arc, time::Instant};
 
 use crate::de::StreamDeserializer;
+use config::Config;
 use se::StreamSerializer;
 use store::Store;
 use tokio::net::TcpStream;
@@ -68,6 +70,7 @@ pub enum Command {
     ECHO,
     GET,
     SET,
+    CONFIG,
 }
 
 impl Command {
@@ -77,6 +80,7 @@ impl Command {
             "echo" => Ok(Command::ECHO),
             "set" => Ok(Command::SET),
             "get" => Ok(Command::GET),
+            "config" => Ok(Command::CONFIG),
             _ => Err(Error::InvalidCommand(
                 "Invalid command / Command has not been implemented",
             )),
@@ -87,6 +91,7 @@ impl Command {
         &self,
         request_content: Vec<Value>,
         store: Arc<Store>,
+        config: &Config,
     ) -> Result<Value, Error> {
         let store = store.clone();
         match self {
@@ -176,11 +181,55 @@ impl Command {
                     None => Ok(Value::BulkString(None)),
                 }
             }
+            Command::CONFIG => {
+                // CONFIG GET
+                // CONFIG GET dir
+                // CONFIG GET dbfilename
+                println!("{:?}", request_content);
+                if request_content.len() != 3 {
+                    return Err(Error::InvalidCommand(
+                        "CONFIG commands should have exactly 2 arguments. CONFIG GET <CONFIG_KEY>",
+                    ));
+                }
+
+                if request_content[1]
+                    .str_value()
+                    .ok_or(Error::InvalidCommand(
+                        "Second argument passed couldn't be parsed as String",
+                    ))?
+                    .to_lowercase()
+                    != "get"
+                {
+                    return Err(Error::InvalidCommand(
+                        "CONFIG command expected GET as second arg.",
+                    ));
+                }
+
+                let key = request_content[2].str_value().ok_or(Error::InvalidCommand(
+                    "Error during parsing KEY passed to CONFIG GET",
+                ))?;
+
+                match key {
+                    "dir" => Ok(Value::Array(vec![
+                        Value::BulkString(Some("dir".to_string())),
+                        Value::BulkString(Some(config.get_rdb_dir())),
+                    ])),
+                    "dbfilename" => Ok(Value::Array(vec![
+                        Value::BulkString(Some("dir".to_string())),
+                        Value::BulkString(Some(config.get_rdb_file())),
+                    ])),
+                    _ => Err(Error::InvalidCommand("Invalid CONFIG key requested")),
+                }
+            }
         }
     }
 }
 
-pub async fn handle_stream(mut stream: TcpStream, store: Arc<Store>) -> Result<(), Error> {
+pub async fn handle_stream(
+    mut stream: TcpStream,
+    store: Arc<Store>,
+    config: Config,
+) -> Result<(), Error> {
     let (read, write) = stream.split();
     let mut input_deserializer = StreamDeserializer::new(read);
     let mut output_serializer = StreamSerializer::new(write);
@@ -202,7 +251,7 @@ pub async fn handle_stream(mut stream: TcpStream, store: Arc<Store>) -> Result<(
                 ))?;
 
                 let command = Command::from_str(cmd_part)?;
-                let response = command.construct_response(data, store).await?;
+                let response = command.construct_response(data, store, &config).await?;
 
                 output_serializer.write(response).await?;
             }
