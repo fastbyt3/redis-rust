@@ -60,9 +60,12 @@ impl TryFrom<u8> for Value {
 
 pub fn read_rdb_file(config: &Config) -> Option<HashMap<String, Entry>> {
     if let Some(file_path) = config.get_rdb_path() {
-        let file_content = fs::read(file_path).expect("Unable to read file");
-        let rdb_data_hm = rdb_parser(&file_content[..]);
-        Some(rdb_data_hm)
+        let file = fs::read(file_path);
+
+        match file {
+            Ok(file_content) => Some(rdb_parser(&file_content[..])),
+            Err(_) => panic!("Couldnt read file: {}", config.get_rdb_path().unwrap()),
+        }
     } else {
         None
     }
