@@ -71,7 +71,7 @@ where
             },
             Value::Integer(n) => self.write_integer(n).await?,
             Value::Array(elements) => {
-                // * {len} CRLF <VALUE> CRLF ...
+                // * {len} CRLF [ <VALUE> CRLF ] ...
                 self.stream.write_u8(ARRAY_PREFIX as u8).await?;
 
                 self.stream
@@ -94,6 +94,8 @@ where
             }
             _ => todo!(),
         }
+
+        self.stream.flush().await?;
 
         Ok(())
     }

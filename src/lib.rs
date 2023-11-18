@@ -1,5 +1,6 @@
 pub mod config;
 pub mod de;
+pub mod rdb;
 pub mod se;
 pub mod store;
 
@@ -71,6 +72,7 @@ pub enum Command {
     GET,
     SET,
     CONFIG,
+    KEYS,
 }
 
 impl Command {
@@ -81,6 +83,7 @@ impl Command {
             "set" => Ok(Command::SET),
             "get" => Ok(Command::GET),
             "config" => Ok(Command::CONFIG),
+            "keys" => Ok(Command::KEYS),
             _ => Err(Error::InvalidCommand(
                 "Invalid command / Command has not been implemented",
             )),
@@ -160,7 +163,7 @@ impl Command {
                 };
 
                 store
-                    .insert(key.to_string(), value.to_string(), expires_in)
+                    .insert(key.to_string(), value.to_string(), expires_in, None)
                     .await;
 
                 Ok(Value::SimpleString("OK".to_string()))
@@ -185,7 +188,6 @@ impl Command {
                 // CONFIG GET
                 // CONFIG GET dir
                 // CONFIG GET dbfilename
-                println!("{:?}", request_content);
                 if request_content.len() != 3 {
                     return Err(Error::InvalidCommand(
                         "CONFIG commands should have exactly 2 arguments. CONFIG GET <CONFIG_KEY>",
@@ -212,14 +214,23 @@ impl Command {
                 match key {
                     "dir" => Ok(Value::Array(vec![
                         Value::BulkString(Some("dir".to_string())),
-                        Value::BulkString(Some(config.get_rdb_dir())),
+                        Value::BulkString(Some(
+                            config.get_rdb_dir().ok_or("".to_string()).unwrap(),
+                        )),
                     ])),
                     "dbfilename" => Ok(Value::Array(vec![
-                        Value::BulkString(Some("dir".to_string())),
-                        Value::BulkString(Some(config.get_rdb_file())),
+                        Value::BulkString(Some("dbfilename".to_string())),
+                        Value::BulkString(Some(
+                            config.get_rdb_file().ok_or("".to_string()).unwrap(),
+                        )),
                     ])),
                     _ => Err(Error::InvalidCommand("Invalid CONFIG key requested")),
                 }
+            }
+            Command::KEYS => {
+                // let path = format!("{}/{}", config.get_rdb_dir(), config.get_rdb_file());
+
+                todo!();
             }
         }
     }

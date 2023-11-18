@@ -145,3 +145,125 @@ redis-cli CONFIG GET dbfilename
 
 - Expected response: Array with 2 Bulk strings - Key and value
 
+### Redis file format
+
+- Ref: 
+	- [Redis RDB file format](https://rdb.fnordig.de/file_format.html)
+	- [RDB dumper](https://github.com/sripathikrishnan/redis-rdb-tools/wiki/Redis-RDB-Dump-File-Format)
+- In general, objects are prefixed with their lengths, so before reading the object you know exactly how much memory to allocate.
+
+- high level structure
+
+```
+----------------------------#
+52 45 44 49 53              # Magic String "REDIS"
+30 30 30 33                 # RDB Version Number as ASCII string. "0003" = 3
+----------------------------
+FA                          # Auxiliary field
+$string-encoded-key         # May contain arbitrary metadata
+$string-encoded-value       # such as Redis version, creation time, used memory, ...
+----------------------------
+FE 00                       # Indicates database selector. db number = 00
+FB                          # Indicates a resizedb field
+$length-encoded-int         # Size of the corresponding hash table
+$length-encoded-int         # Size of the corresponding expire hash table
+----------------------------# Key-Value pair starts
+FD $unsigned-int            # "expiry time in seconds", followed by 4 byte unsigned int
+$value-type                 # 1 byte flag indicating the type of value
+$string-encoded-key         # The key, encoded as a redis string
+$encoded-value              # The value, encoding depends on $value-type
+----------------------------
+FC $unsigned long           # "expiry time in ms", followed by 8 byte unsigned long
+$value-type                 # 1 byte flag indicating the type of value
+$string-encoded-key         # The key, encoded as a redis string
+$encoded-value              # The value, encoding depends on $value-type
+----------------------------
+$value-type                 # key-value pair without expiry
+$string-encoded-key
+$encoded-value
+----------------------------
+FE $length-encoding         # Previous db ends, next db starts.
+----------------------------
+...                         # Additional key-value pairs, databases, ...
+
+FF                          ## End of RDB file indicator
+8-byte-checksum             ## CRC64 checksum of the entire file.
+```
+
+### OpCodes
+
+| Byte | Name			|
+| ---- | --------------	|
+| 0xFF | EOF			|
+| 0xFE | SELECTDB		|
+| 0xFD | EXPIRETIME		|
+| 0xFC | EXPIRETIMEMS	|
+| 0xFB | RESIZEDB		|
+| 0xFA | AUX			|
+
+### Key-value pairs
+
+- each KV has 4 parts:
+    - Key expiry timestamp (optional) -> `0xFD` or `0xFC`
+    - one byte flag -> indicates value type
+    - key -> encoded as Redis String
+    - value -> encoded acc to value type
+
+#### Value types
+
+1. 0 - String encoding
+2. 1 - text 
+3. 2 - set
+4. 3 - Sorted set
+5. 4 - HashMap
+6. 9 - zipmap
+7. 10 - ziplist
+8. 11 - intset
+9. 12 - sorted set in ziplist
+10. 13 - hashmap in ziplist
+
+- when value is one of 1, 2, 3 or 4, the value is a sequence of strings -> construct list, set, sorted set, hashmap
+- one of 9, 10, 11 or 12, the value is wrapped in a string. after reading string it must be parsed further
+
+#### Length encoding
+
+- store the length of the next object in the stream
+- length encoding is a variable byte length
+
+- how it works:
+    - read one byte -> 2 MSB are read
+    - if starting bits are `00` -> next 6 bits represent length
+    - `01` then additional byte is read -> combined 14 bits represent length
+    - `10` -> discard remaining 6 bits -> additional 4 bytes are read which represent the length in Big endian format
+    - `11` -> next object is encoded in special format & remaining 6 bits indicate format type
+
+- result of this encoding
+    1. Numbers upto and including 63 can be stored in 1 byte
+    2. Numbers upto and including 16383 can be stored in 2 bytes
+    3. Numbers upto 2^32 -1 can be stored in 5 bytes
+
+#### String encoding
+
+- no special End-of-string token is used
+- kinda like Byte array
+
+- 3 types
+    - Length prefixed strings -> length encoding first done followed by raw string
+    - 8, 16, 32 bit integer -> value of 6 bits (format type) after length encoding:
+        - 0 -> 8 bit integer
+		- 1 -> 16 bit integer
+        - 2 -> 32 bit integer
+    - LZF compressed string
+        - format type (last 6 bits) = 4 (000100)
+        - compressed length (clen) read thru length encoding
+        - uncompressed length read thru length encoding
+        - next `clen` bytes are read
+        - decompress read bytes using LZF algo
+
+### Accessing keys in RDB file
+
+```bash
+$ redis-cli keys "*"
+# returns all keys as array
+*1\r\n$3\r\nfoo\r\n # example where k-v is foo:foo
+```

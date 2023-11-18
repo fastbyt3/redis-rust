@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use redis_starter_rust::{config::Config, handle_stream, store::Store};
+use redis_starter_rust::{config::Config, handle_stream, rdb::read_rdb_file, store::Store};
 use tokio::net::TcpListener;
 
 #[derive(Parser, Debug)]
@@ -10,11 +10,11 @@ struct Args {
     #[arg(long, default_value = "127.0.0.1:6379")]
     addr: String,
 
-    #[arg(long = "dir", default_value = "./persistance")]
-    rdb_dir: String,
+    #[arg(long = "dir")]
+    rdb_dir: Option<String>,
 
-    #[arg(long = "dbfilename", default_value = "data.rdb")]
-    rdb_file: String,
+    #[arg(long = "dbfilename")]
+    rdb_file: Option<String>,
 }
 
 #[tokio::main]
@@ -22,8 +22,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let config = Config::new(args.addr, args.rdb_dir, args.rdb_file);
 
+    // Read data from RDB file into a HASHMAP
+    // then add it to state store
+    let rdb_kv_data = read_rdb_file(&config);
+
     let listener = TcpListener::bind(config.get_addr_string()).await?;
-    let store = Arc::new(Store::new());
+    let store = Arc::new(Store::new(rdb_kv_data));
 
     loop {
         let (tcp_stream, _) = listener.accept().await?;

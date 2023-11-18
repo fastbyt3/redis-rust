@@ -1,12 +1,12 @@
 #[derive(Debug, Clone)]
 pub struct Config {
     addr: String,
-    rdb_dir: String,
-    rdb_file: String,
+    rdb_dir: Option<String>,
+    rdb_file: Option<String>,
 }
 
 impl Config {
-    pub fn new(addr: String, rdb_dir: String, rdb_file: String) -> Self {
+    pub fn new(addr: String, rdb_dir: Option<String>, rdb_file: Option<String>) -> Self {
         Self {
             addr,
             rdb_dir,
@@ -18,11 +18,21 @@ impl Config {
         self.addr.to_string()
     }
 
-    pub fn get_rdb_file(&self) -> String {
-        self.rdb_file.to_string()
+    pub fn get_rdb_file(&self) -> Option<String> {
+        self.rdb_file.clone()
     }
 
-    pub fn get_rdb_dir(&self) -> String {
-        self.rdb_dir.to_string()
+    pub fn get_rdb_dir(&self) -> Option<String> {
+        self.rdb_dir.clone()
+    }
+
+    pub fn get_rdb_path(&self) -> Option<String> {
+        match self.rdb_dir.clone() {
+            Some(dir) => match self.rdb_file.clone() {
+                Some(fname) => Some(format!("{}/{}", dir, fname)),
+                None => None,
+            },
+            None => None,
+        }
     }
 }
