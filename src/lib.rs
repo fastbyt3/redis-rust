@@ -228,9 +228,27 @@ impl Command {
                 }
             }
             Command::KEYS => {
-                // let path = format!("{}/{}", config.get_rdb_dir(), config.get_rdb_file());
+                // print all keys in store
+                println!("{:?}", request_content);
+                if request_content.len() != 2 {
+                    panic!("KEYS expects exactly 1 argument");
+                }
 
-                todo!();
+                if request_content[1].str_value().unwrap() == "*" {
+                    // let keys: Vec<Value> = Vec::new();
+                    // for key in store.get_all_keys().await {
+                    //     keys.append(Value::BulkString(Some(key)))
+                    // }
+                    let keys = store
+                        .get_all_keys()
+                        .await
+                        .iter()
+                        .map(|key| Value::BulkString(Some(key.to_owned())))
+                        .collect();
+                    Ok(Value::Array(keys))
+                } else {
+                    Err(Error::InvalidCommand("not implemented yet"))
+                }
             }
         }
     }

@@ -75,6 +75,11 @@ impl Store {
         let entry = Entry::new(value, ttl, expires_at_ts, Instant::now());
         self.state.write().await.insert(key, entry);
     }
+
+    pub async fn get_all_keys(&self) -> Vec<String> {
+        let read_lock = self.state.read().await;
+        read_lock.keys().cloned().collect()
+    }
 }
 
 impl Deref for Store {

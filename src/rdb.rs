@@ -23,6 +23,7 @@ enum EncodingFormat {
     Compressed,
 }
 
+#[derive(Debug, PartialEq)]
 enum Value {
     String = 0,
     List = 1,
@@ -41,6 +42,7 @@ impl TryFrom<u8> for Value {
     type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
+        println!("---------- try_from : {value}");
         match value {
             0 => Ok(Value::String),
             1 => Ok(Value::List),
@@ -63,8 +65,14 @@ pub fn read_rdb_file(config: &Config) -> Option<HashMap<String, Entry>> {
         let file = fs::read(file_path);
 
         match file {
-            Ok(file_content) => Some(rdb_parser(&file_content[..])),
-            Err(_) => panic!("Couldnt read file: {}", config.get_rdb_path().unwrap()),
+            Ok(file_content) => {
+                // println!("{:?}", file_content);
+                Some(rdb_parser(&file_content[..]))
+            }
+            Err(_) => {
+                println!("Couldn't find RDB file so skipping reading RDB file content into state");
+                None
+            }
         }
     } else {
         None
@@ -75,9 +83,10 @@ fn rdb_parser(data: &[u8]) -> HashMap<String, Entry> {
     if &data[..5] != b"REDIS" {
         panic!("Expected magic string (5 bytes) to have value 'REDIS'");
     }
+    println!("[!] parsed MAGIC STRING: read 5 bytes");
 
     let rdb_version = String::from_utf8_lossy(&data[5..9]);
-    println!("RDB file version: {}", rdb_version);
+    println!("[!] RDB file version: {}, read 4 bytes", rdb_version);
 
     let mut data = &data[9..];
     let mut hm: HashMap<String, Entry> = HashMap::new();
@@ -85,30 +94,38 @@ fn rdb_parser(data: &[u8]) -> HashMap<String, Entry> {
     while !data.is_empty() {
         match data[0] {
             EOF => {
-                println!("Reached EOF");
+                println!("[!] Reached EOF");
                 data = &data[data.len()..]; // exit while loop
             }
             SELECT_DB => {
-                println!("Reached SELECT_DB");
+                println!("[!] Reached SELECT_DB");
                 // Skip two bytes: OP_CODE <DB_selector_value>
+                // Assuming DB_selector_value is only 1 byte.... should be atleast for our usecase
+                let db_selector = data[1];
+                println!(
+                    "---- DB selector value: {}, parsed bytes = 2 (OPCODE & DB_selector_value)",
+                    db_selector
+                );
                 data = &data[2..];
             }
             RESIZE_DB => {
-                println!("Reached RESIZE_DB");
+                println!("[!] Reached RESIZE_DB");
                 // Jump over OP_CODE
-                data = &data[1..];
-                let mut total_bytes_read = 0;
+                // println!("-------------- DEBUG: current byte: {}", data[0]);
+                // println!("-------------- DEBUG: second byte: {}", data[1]);
+                // println!("-------------- DEBUG: thrid byte: {}", data[2]);
 
-                let (_hash_table_size, bytes_read) = parse_string(&data[1..]).unwrap();
-                total_bytes_read += bytes_read;
-                data = &data[total_bytes_read..];
+                // data = &data[1..];
 
-                let (_expire_hash_table_size, bytes_read) = parse_string(&data).unwrap();
-                total_bytes_read += bytes_read;
-                data = &data[total_bytes_read..];
+                // let (_hash_table_size, bytes_read) = parse_string(&data).unwrap();
+                // data = &data[bytes_read..];
+
+                // let (_expire_hash_table_size, bytes_read) = parse_string(&data).unwrap();
+                // data = &data[bytes_read..];
+                data = &data[3..];
             }
             AUXILLARY_FIELDS => {
-                println!("Reached AUXILLARY_FIELDS");
+                println!("[!] Reached AUXILLARY_FIELDS");
                 data = &data[1..];
 
                 let (key, bytes_read) = parse_string(&data).unwrap();
@@ -117,7 +134,10 @@ fn rdb_parser(data: &[u8]) -> HashMap<String, Entry> {
                 let (value, bytes_read) = parse_string(&data).unwrap();
                 data = &data[bytes_read..];
 
-                println!("Aux ----> {} ::: {}", key, value);
+                println!(
+                    "===================> INFO: Parsed aux field ----> {} : {}",
+                    key, value
+                );
             }
             EXPIRE_TIME => {
                 // data = &data[1..];
@@ -136,19 +156,14 @@ fn rdb_parser(data: &[u8]) -> HashMap<String, Entry> {
             EXPIRE_TIME_MS => {
                 unimplemented!()
             }
-            _ => match Value::try_from(data[0]).unwrap() {
-                Value::String => {
-                    println!("[!] Reading Key-value pair without expiry");
-                    data = &data[1..];
+            _ => {
+                let (key, value, bytes_read) = read_key_string_value(&data).unwrap();
+                println!("[!] Read KV pair without expiry ----> {key} : {value}");
+                data = &data[bytes_read..];
 
-                    let (key, value, bytes_read) = read_key_string_value(&data).unwrap();
-                    data = &data[bytes_read..];
-
-                    let entry = Entry::new(value, None, None, Instant::now());
-                    hm.insert(key, entry);
-                }
-                _ => unimplemented!(),
-            },
+                let entry = Entry::new(value, None, None, Instant::now());
+                hm.insert(key, entry);
+            }
         }
     }
 
@@ -179,14 +194,18 @@ fn parse_string(buf: &[u8]) -> Result<(String, usize), Error> {
 
     let (length_encoding_type, parsed_bytes) = decode_length_encoding(&buf).unwrap();
 
+    let rest = &buf[parsed_bytes..];
     bytes_read += parsed_bytes;
-    let rest = &buf[bytes_read..];
 
     let data: String = match length_encoding_type {
         LengthEncodingType::Length(length) => {
-            println!("Reading {} raw bytes", length);
-            let parsed_string = String::from_utf8_lossy(&rest[..length]).to_string();
-            println!("Parsed String: {}", parsed_string);
+            // println!("---- Reading {} raw bytes", length);
+            let mut parsed_string = String::new();
+            if length > 0 {
+                // println!("----------- DEBUG raw read value: {:?}", &rest[..length]);
+                parsed_string = String::from_utf8_lossy(&rest[..length]).to_string();
+                // println!("---- Parsed String: {}", parsed_string);
+            }
             bytes_read += length;
             parsed_string
         }
@@ -204,15 +223,19 @@ fn parse_string(buf: &[u8]) -> Result<(String, usize), Error> {
         },
     };
 
+    // println!(
+    // "-------------- DEBUG: Bytes read at end of parsing string: {}",
+    //     bytes_read
+    // );
     Ok((data, bytes_read))
 }
 
 fn decode_length_encoding(buf: &[u8]) -> Result<(LengthEncodingType, usize), Error> {
     let first_byte = buf[0];
-    println!("length encoding byte: {:b}", first_byte);
+    println!("---- length encoding byte: {:b}", first_byte);
 
     let two_msb_value = first_byte >> 6;
-    println!("MSB value: {:b}", two_msb_value);
+    // println!("---- MSB value: {:b}", two_msb_value);
 
     match two_msb_value {
         0b00 => Ok((LengthEncodingType::Length((first_byte & 0x3f) as usize), 1)),
@@ -227,7 +250,7 @@ fn decode_length_encoding(buf: &[u8]) -> Result<(LengthEncodingType, usize), Err
         }
         0b11 => {
             // Special format
-            println!("Special format byte: {:b}", first_byte & 0x3f);
+            println!("---- Special format byte: {:b}", first_byte & 0x3f);
             match first_byte & 0x3f {
                 0b00 => {
                     // 8 bit Integer
@@ -313,5 +336,10 @@ mod tests {
             parse_string(&[194, 01, 00, 00, 00]).unwrap(),
             ("16777216".to_string(), 5)
         );
+    }
+
+    #[test]
+    fn test_foo() {
+        assert_eq!(Value::try_from(9 as u8).unwrap(), Value::Zipmap);
     }
 }
