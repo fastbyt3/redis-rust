@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use std::fs;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use std::{collections::HashMap, time::UNIX_EPOCH};
 
 use crate::{config::Config, store::Entry, Error};
 
@@ -117,7 +117,8 @@ fn rdb_parser(data: &[u8]) -> HashMap<String, Entry> {
 
                 // data = &data[1..];
 
-                // let (_hash_table_size, bytes_read) = parse_string(&data).unwrap();
+                // let (hash_table_size, bytes_read) = parse_string(&data).unwrap();
+                // println!("===================> INFO: hash_table_size = {hash_table_size}");
                 // data = &data[bytes_read..];
 
                 // let (_expire_hash_table_size, bytes_read) = parse_string(&data).unwrap();
@@ -140,21 +141,49 @@ fn rdb_parser(data: &[u8]) -> HashMap<String, Entry> {
                 );
             }
             EXPIRE_TIME => {
-                // data = &data[1..];
+                // Jump op-code
+                data = &data[1..];
 
-                // // read 4 byte unsigned integer
-                // let raw_data = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as u64;
-                // data = &data[4..];
+                // read 4 byte unsigned integer
+                let raw_data = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as u64;
+                data = &data[4..];
 
+                let timestamp = UNIX_EPOCH + Duration::from_secs(raw_data);
+                // println!(
+                //     "----------------------- INFO: EXPIRE TIME SEC: {:?}",
+                //     timestamp
+                // );
                 // let expiring_at = std::time::UNIX_EPOCH + raw_data;
 
-                // // read KV
-                // let (key, value, parsed_bytes) = read_key_string_value(&data).unwrap();
-                // data = &data[parsed_bytes..];
-                unimplemented!()
+                // read KV
+                let (key, value, parsed_bytes) = read_key_string_value(&data).unwrap();
+                data = &data[parsed_bytes..];
+
+                let entry = Entry::new(value, None, Some(timestamp), Instant::now());
+                hm.insert(key, entry);
             }
             EXPIRE_TIME_MS => {
-                unimplemented!()
+                // Jump op-code
+                data = &data[1..];
+
+                // read 8 byte unsigned long
+                let raw_data = u64::from_le_bytes([
+                    data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+                ]) as u64;
+                data = &data[8..];
+
+                let timestamp = UNIX_EPOCH + Duration::from_millis(raw_data);
+                // println!(
+                //     "----------------------- INFO: EXPIRE TIME MS: {:?}",
+                //     timestamp
+                // ); // let expiring_at = std::time::UNIX_EPOCH + raw_data;
+
+                // read KV
+                let (key, value, parsed_bytes) = read_key_string_value(&data).unwrap();
+                data = &data[parsed_bytes..];
+
+                let entry = Entry::new(value, None, Some(timestamp), Instant::now());
+                hm.insert(key, entry);
             }
             _ => {
                 let (key, value, bytes_read) = read_key_string_value(&data).unwrap();
@@ -171,8 +200,10 @@ fn rdb_parser(data: &[u8]) -> HashMap<String, Entry> {
 }
 
 fn read_key_string_value(buf: &[u8]) -> Result<(String, String, usize), Error> {
+    // read value type: for this challenge only Value::String has been implemented
     match Value::try_from(buf[0]).unwrap() {
         Value::String => {
+            // Jump over value type byte
             let mut rest = &buf[1..];
             let mut bytes_read = 1; // 1 cos we read first byte (value type)
 

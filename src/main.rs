@@ -25,6 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read data from RDB file into a HASHMAP
     // then add it to state store
     let rdb_kv_data = read_rdb_file(&config);
+    println!("{:?}", rdb_kv_data);
 
     let listener = TcpListener::bind(config.get_addr_string()).await?;
     let store = Arc::new(Store::new(rdb_kv_data));

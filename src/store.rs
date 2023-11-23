@@ -1,4 +1,5 @@
 use std::ops::{Deref, DerefMut};
+use std::time::SystemTime;
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
@@ -9,20 +10,37 @@ use tokio::sync::RwLock;
 #[derive(Debug, Clone)]
 pub struct Entry {
     value: String,
-    expires_at: Option<std::time::Instant>,
+    expires_at: Option<ExpiryTime>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum ExpiryTime {
+    ExpiringInstant(Instant),
+    ExpiringSystime(SystemTime),
 }
 
 impl Entry {
     pub fn new(
         value: String,
         ttl: Option<u64>,
-        expires_at_ts: Option<Instant>,
+        expires_at_ts: Option<SystemTime>,
         now: Instant,
     ) -> Self {
-        let expires_at = ttl.map(|expires_in| {
-            now.checked_add(Duration::from_millis(expires_in))
-                .expect("Error during adding ttl to now instant")
-        });
+        let expires_at = match expires_at_ts {
+            Some(expiry_systime) => Some(ExpiryTime::ExpiringSystime(expiry_systime)),
+            None => match ttl {
+                Some(expires_in) => Some(ExpiryTime::ExpiringInstant(
+                    now.checked_add(Duration::from_millis(expires_in))
+                        .expect("Error in addition of expires_in and now"),
+                )),
+                None => None,
+            },
+        };
+
+        // let expires_at = ttl.map(|expires_in| {
+        //     now.checked_add(Duration::from_millis(expires_in))
+        //         .expect("Error during adding ttl to now instant")
+        // });
         Entry { value, expires_at }
     }
 
@@ -31,9 +49,18 @@ impl Entry {
     }
 
     pub fn is_expired(&self, now: Instant) -> bool {
-        self.expires_at
-            .map(|expires_at| expires_at <= now)
-            .unwrap_or(false)
+        match &self.expires_at {
+            Some(expires_at) => match expires_at {
+                ExpiryTime::ExpiringInstant(expiring_instant) => expiring_instant <= &now,
+                ExpiryTime::ExpiringSystime(expiring_systime) => {
+                    expiring_systime <= &SystemTime::now()
+                }
+            },
+            None => false,
+        }
+        // self.expires_at
+        //     .map(|expires_at| expires_at <= now)
+        //     .unwrap_or(false)
     }
 }
 
@@ -70,7 +97,7 @@ impl Store {
         key: String,
         value: String,
         ttl: Option<u64>,
-        expires_at_ts: Option<Instant>,
+        expires_at_ts: Option<SystemTime>,
     ) {
         let entry = Entry::new(value, ttl, expires_at_ts, Instant::now());
         self.state.write().await.insert(key, entry);
